@@ -1,0 +1,4 @@
+# Esta carpeta contendrá los archivos compilados del frontend
+# Normalmente se genera mediante 'npm run build' en la carpeta client
+# El contenido de esta carpeta no se incluye en el repositorio
+# pero será creado automáticamente durante el despliegue en Heroku
