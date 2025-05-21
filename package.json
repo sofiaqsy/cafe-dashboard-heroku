@@ -1,0 +1,16 @@
+{
+  "name": "cafe-dashboard",
+  "version": "1.0.0",
+  "description": "Dashboard de reportes financieros y de inventario para el sistema de gestión de café",
+  "scripts": {
+    "heroku-prebuild": "cd client && npm install",
+    "heroku-postbuild": "cd client && npm run build"
+  },
+  "engines": {
+    "node": "18.x",
+    "npm": "9.x"
+  },
+  "cacheDirectories": [
+    "client/node_modules"
+  ]
+}

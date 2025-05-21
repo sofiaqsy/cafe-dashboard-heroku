@@ -25,6 +25,8 @@ cafe-dashboard-heroku/
 ├── requirements.txt          # Dependencias de Python
 ├── runtime.txt               # Versión de Python para Heroku
 ├── Procfile                  # Configuración para Heroku
+├── Procfile.dev              # Configuración para entorno de desarrollo
+├── package.json              # Configuración para construir React en Heroku
 ├── .gitignore                # Archivos ignorados por git
 ├── client/                   # Frontend React
 │   ├── public/
@@ -69,6 +71,7 @@ Crea un archivo `.env` en la raíz del proyecto con:
 ```
 GOOGLE_CREDENTIALS={"tu_json_de_credenciales_aquí"}
 SPREADSHEET_ID=tu_id_de_hoja_de_cálculo
+FLASK_DEBUG=1  # Para entorno de desarrollo
 ```
 
 ### Configuración del Frontend
@@ -123,6 +126,15 @@ heroku create cafe-dashboard
 ```bash
 heroku config:set GOOGLE_CREDENTIALS='{"tu_json_de_credenciales_aquí"}' --app cafe-dashboard
 heroku config:set SPREADSHEET_ID=tu_id_de_hoja_de_cálculo --app cafe-dashboard
+heroku config:set FLASK_DEBUG=0 --app cafe-dashboard
+```
+
+4. Configura los buildpacks necesarios:
+
+```bash
+heroku buildpacks:clear --app cafe-dashboard
+heroku buildpacks:add heroku/nodejs --app cafe-dashboard
+heroku buildpacks:add heroku/python --app cafe-dashboard
 ```
 
 ### Despliegue
@@ -132,6 +144,28 @@ Puedes desplegar directamente desde el repositorio GitHub conectando la aplicaci
 ```bash
 git push heroku main
 ```
+
+### Solución de problemas comunes en el despliegue
+
+Si encuentras problemas con el despliegue, puedes verificar los logs:
+
+```bash
+heroku logs --tail --app cafe-dashboard
+```
+
+Problemas comunes y soluciones:
+
+1. **Error 404 en la ruta principal**: 
+   - Verifica que el proceso de construcción del frontend se haya ejecutado correctamente.
+   - Consulta la ruta `/health` para diagnóstico.
+
+2. **Error H10 (app crashed)**:
+   - Verifica las variables de entorno requeridas.
+   - Asegúrate de tener los buildpacks en el orden correcto (primero Node.js, luego Python).
+
+3. **Error en la construcción del frontend**:
+   - Verifica la compatibilidad de versiones en `package.json`.
+   - Puedes construir localmente el frontend y luego subirlo mediante `git push heroku main`.
 
 ## 🔄 Integración con el Bot de Telegram
 
