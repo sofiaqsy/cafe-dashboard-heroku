@@ -1,0 +1,1 @@
+web: FLASK_DEBUG=1 gunicorn server.app:app
