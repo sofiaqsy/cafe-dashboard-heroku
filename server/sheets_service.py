@@ -260,6 +260,147 @@ def calculate_compras_summary(start_date=None, end_date=None):
             'error': str(e)
         }
 
+def calculate_profit_by_process(start_date=None, end_date=None):
+    """
+    Calcula la ganancia real basada en el proceso de transformación de café
+    
+    Args:
+        start_date (str): Fecha de inicio en formato 'YYYY-MM-DD'
+        end_date (str): Fecha de fin en formato 'YYYY-MM-DD'
+        
+    Returns:
+        dict: Resumen de ganancias por proceso
+    """
+    try:
+        # Obtener datos de todas las hojas necesarias
+        compras_df = get_compras_data()
+        proceso_df = get_proceso_data()
+        almacen_df = get_almacen_data()
+        ventas_df = get_ventas_data()
+        
+        # Filtrar por fecha si es necesario
+        if start_date or end_date:
+            compras_df = filter_by_date_range(compras_df, 'fecha', start_date, end_date)
+            proceso_df = filter_by_date_range(proceso_df, 'fecha', start_date, end_date)
+            almacen_df = filter_by_date_range(almacen_df, 'fecha', start_date, end_date)
+            ventas_df = filter_by_date_range(ventas_df, 'fecha', start_date, end_date)
+            
+        # Convertir tipos de datos para cálculos
+        for df in [compras_df, proceso_df, almacen_df, ventas_df]:
+            for col in df.columns:
+                if col.lower() in ['cantidad', 'precio', 'total', 'preciototal', 'precio_kg']:
+                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+        
+        # Identificar columnas relevantes en cada DataFrame
+        compras_id_col = None
+        for col in compras_df.columns:
+            if col.lower() in ['id', 'codigo', 'compra_id']:
+                compras_id_col = col
+                break
+                
+        compras_total_col = None
+        for col in compras_df.columns:
+            if col.lower() in ['total', 'preciototal']:
+                compras_total_col = col
+                break
+                
+        proceso_compras_id_col = None
+        for col in proceso_df.columns:
+            if 'compras_' in col.lower() and 'id' in col.lower():
+                proceso_compras_id_col = col
+                break
+                
+        almacen_id_col = None
+        for col in almacen_df.columns:
+            if col.lower() in ['id', 'codigo', 'almacen_id']:
+                almacen_id_col = col
+                break
+                
+        ventas_almacen_id_col = None
+        for col in ventas_df.columns:
+            if 'almacen' in col.lower() and 'id' in col.lower():
+                ventas_almacen_id_col = col
+                break
+                
+        ventas_total_col = None
+        for col in ventas_df.columns:
+            if col.lower() in ['total', 'precio_total']:
+                ventas_total_col = col
+                break
+                
+        # Verificar que se encontraron todas las columnas necesarias
+        if (compras_id_col is None or compras_total_col is None or 
+            proceso_compras_id_col is None or almacen_id_col is None or 
+            ventas_almacen_id_col is None or ventas_total_col is None):
+            logger.warning("No se encontraron todas las columnas necesarias para calcular ganancias por proceso")
+            logger.warning(f"compras_id_col: {compras_id_col}")
+            logger.warning(f"compras_total_col: {compras_total_col}")
+            logger.warning(f"proceso_compras_id_col: {proceso_compras_id_col}")
+            logger.warning(f"almacen_id_col: {almacen_id_col}")
+            logger.warning(f"ventas_almacen_id_col: {ventas_almacen_id_col}")
+            logger.warning(f"ventas_total_col: {ventas_total_col}")
+            return {
+                'costo_compras': 0.0,
+                'ingresos_ventas': 0.0,
+                'ganancia_real': 0.0
+            }
+        
+        # Calcular costo total de compras que han sido procesadas
+        costo_compras_procesadas = 0.0
+        ingresos_ventas_procesadas = 0.0
+        
+        # Mapear compras a procesos
+        compras_procesadas = {}
+        if not proceso_df.empty and proceso_compras_id_col in proceso_df.columns:
+            for _, row in proceso_df.iterrows():
+                compra_id = row[proceso_compras_id_col]
+                if pd.notna(compra_id) and compra_id != '':
+                    # Limpiar el ID (a veces viene con espacios o caracteres adicionales)
+                    compra_id = str(compra_id).strip()
+                    compras_procesadas[compra_id] = True
+        
+        # Sumar el costo de las compras procesadas
+        if not compras_df.empty and compras_id_col in compras_df.columns and compras_total_col in compras_df.columns:
+            for _, row in compras_df.iterrows():
+                compra_id = str(row[compras_id_col]).strip() if pd.notna(row[compras_id_col]) else ''
+                if compra_id in compras_procesadas:
+                    costo_compras_procesadas += float(row[compras_total_col])
+        
+        # Mapear almacén a ventas
+        almacen_vendido = {}
+        if not ventas_df.empty and ventas_almacen_id_col in ventas_df.columns:
+            for _, row in ventas_df.iterrows():
+                almacen_id = row[ventas_almacen_id_col]
+                if pd.notna(almacen_id) and almacen_id != '':
+                    # Limpiar el ID
+                    almacen_id = str(almacen_id).strip()
+                    if ventas_total_col in ventas_df.columns:
+                        almacen_vendido[almacen_id] = float(row[ventas_total_col])
+                        ingresos_ventas_procesadas += float(row[ventas_total_col])
+        
+        # Calcular ganancia real
+        ganancia_real = ingresos_ventas_procesadas - costo_compras_procesadas
+        
+        logger.info(f"Costo total de compras procesadas: {costo_compras_procesadas}")
+        logger.info(f"Ingresos por ventas de café procesado: {ingresos_ventas_procesadas}")
+        logger.info(f"Ganancia real: {ganancia_real}")
+        
+        return {
+            'costo_compras': float(costo_compras_procesadas),
+            'ingresos_ventas': float(ingresos_ventas_procesadas),
+            'ganancia_real': float(ganancia_real)
+        }
+    except Exception as e:
+        logger.error(f"Error al calcular ganancia por proceso: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return {
+            'costo_compras': 0.0,
+            'ingresos_ventas': 0.0,
+            'ganancia_real': 0.0,
+            'error': str(e)
+        }
+
 def calculate_daily_summary(start_date=None, end_date=None):
     """
     Calcula un resumen diario de operaciones
@@ -323,6 +464,9 @@ def calculate_daily_summary(start_date=None, end_date=None):
                 total_col = col_name
                 break
                 
+        compras_con_adelantos = 0
+        compras_sin_adelantos = 0
+                
         if nota_col is not None and total_col is not None:
             proceso_df['es_adelanto'] = proceso_df[nota_col].astype(str).str.contains('Compra con adelanto', case=False, na=False)
             compras_con_adelantos = proceso_df[proceso_df['es_adelanto']][total_col].sum()
@@ -332,6 +476,9 @@ def calculate_daily_summary(start_date=None, end_date=None):
             compras_summary = calculate_compras_summary(start_date, end_date)
             compras_con_adelantos = compras_summary['compras_con_adelantos']
             compras_sin_adelantos = compras_summary['compras_sin_adelantos']
+        
+        # Calcular ganancia real basada en procesos
+        profit_summary = calculate_profit_by_process(start_date, end_date)
             
         # Construir resumen
         summary = {
@@ -347,7 +494,8 @@ def calculate_daily_summary(start_date=None, end_date=None):
             'financiero': {
                 'ingresos': float(ingresos),
                 'gastos': float(gastos_total),
-                'ganancia': float(ingresos - gastos_total)
+                'ganancia': float(ingresos - gastos_total),
+                'ganancia_real': float(profit_summary['ganancia_real'])
             },
             'compras': {
                 'total': float(compras_con_adelantos + compras_sin_adelantos),
@@ -369,6 +517,8 @@ def calculate_daily_summary(start_date=None, end_date=None):
         return summary
     except Exception as e:
         logger.error(f"Error al calcular resumen diario: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return {
             'error': str(e),
             'periodo': {
@@ -394,9 +544,10 @@ def get_daily_summaries(start_date=None, end_date=None):
         ventas_df = get_ventas_data()
         gastos_df = get_gastos_data()
         proceso_df = get_proceso_data()
+        almacen_df = get_almacen_data()
         
         # Convertir columnas de fecha a datetime
-        for df in [compras_df, ventas_df, gastos_df, proceso_df]:
+        for df in [compras_df, ventas_df, gastos_df, proceso_df, almacen_df]:
             if 'fecha' in df.columns:
                 df['fecha'] = pd.to_datetime(df['fecha'], errors='coerce')
         
@@ -406,16 +557,17 @@ def get_daily_summaries(start_date=None, end_date=None):
             ventas_df = filter_by_date_range(ventas_df, 'fecha', start_date, end_date)
             gastos_df = filter_by_date_range(gastos_df, 'fecha', start_date, end_date)
             proceso_df = filter_by_date_range(proceso_df, 'fecha', start_date, end_date)
+            almacen_df = filter_by_date_range(almacen_df, 'fecha', start_date, end_date)
             
         # Convertir tipos de datos para cálculos
-        for df in [compras_df, ventas_df, gastos_df, proceso_df]:
+        for df in [compras_df, ventas_df, gastos_df, proceso_df, almacen_df]:
             for col in df.columns:
                 if col.lower() in ['cantidad', 'precio', 'total', 'monto', 'preciototal']:
                     df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         
         # Obtener todas las fechas únicas
         all_dates = pd.DataFrame()
-        for df in [compras_df, ventas_df, gastos_df, proceso_df]:
+        for df in [compras_df, ventas_df, gastos_df, proceso_df, almacen_df]:
             if 'fecha' in df.columns and not df.empty:
                 all_dates = pd.concat([all_dates, df[['fecha']]])
         
@@ -452,6 +604,7 @@ def get_daily_summaries(start_date=None, end_date=None):
             day_ventas = ventas_df[ventas_df['fecha'].dt.date == date] if 'fecha' in ventas_df.columns else pd.DataFrame()
             day_gastos = gastos_df[gastos_df['fecha'].dt.date == date] if 'fecha' in gastos_df.columns else pd.DataFrame()
             day_proceso = proceso_df[proceso_df['fecha'].dt.date == date] if 'fecha' in proceso_df.columns else pd.DataFrame()
+            day_almacen = almacen_df[almacen_df['fecha'].dt.date == date] if 'fecha' in almacen_df.columns else pd.DataFrame()
             
             # Calcular estadísticas del día
             kg_comprados = day_compras['cantidad'].sum() if 'cantidad' in day_compras.columns else 0
@@ -475,6 +628,10 @@ def get_daily_summaries(start_date=None, end_date=None):
                 compras_con_adelantos = day_proceso[day_proceso['es_adelanto']][total_col_proceso].sum()
                 compras_sin_adelantos = day_proceso[~day_proceso['es_adelanto']][total_col_proceso].sum()
                 
+            # Calcular ganancia real basada en procesos para el día
+            # Esto es una simplificación, ya que el proceso real puede involucrar días múltiples
+            ganancia_real = 0
+            
             # Construir resumen del día
             day_summary = {
                 'fecha': str_date,
@@ -485,7 +642,8 @@ def get_daily_summaries(start_date=None, end_date=None):
                 'financiero': {
                     'ingresos': float(ingresos),
                     'gastos': float(gastos_total),
-                    'ganancia': float(ingresos - gastos_total)
+                    'ganancia': float(ingresos - gastos_total),
+                    'ganancia_real': float(ganancia_real)
                 },
                 'compras': {
                     'total': float(compras_con_adelantos + compras_sin_adelantos),
@@ -509,6 +667,8 @@ def get_daily_summaries(start_date=None, end_date=None):
         return daily_summaries
     except Exception as e:
         logger.error(f"Error al obtener resúmenes diarios: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return []
 
 def get_coffee_types_summary():
