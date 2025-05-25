@@ -188,6 +188,67 @@ def filter_by_date_range(df, fecha_col='fecha', start_date=None, end_date=None, 
             
     return df
 
+def calculate_compras_summary(start_date=None, end_date=None):
+    """
+    Calcula resumen de compras, separando las que tienen notas (adelantos) de las que no
+    
+    Args:
+        start_date (str): Fecha de inicio en formato 'YYYY-MM-DD'
+        end_date (str): Fecha de fin en formato 'YYYY-MM-DD'
+        
+    Returns:
+        dict: Resumen de compras con totales separados
+    """
+    try:
+        # Obtener datos de compras
+        compras_df = get_compras_data()
+        
+        # Filtrar por fecha si es necesario
+        if start_date or end_date:
+            compras_df = filter_by_date_range(compras_df, 'fecha', start_date, end_date)
+            
+        # Convertir tipos de datos para cálculos
+        for col in compras_df.columns:
+            if col.lower() in ['cantidad', 'precio', 'total', 'monto', 'preciototal']:
+                compras_df[col] = pd.to_numeric(compras_df[col], errors='coerce').fillna(0)
+        
+        # Verificar si existe la columna 'notas'
+        nota_col = None
+        for col_name in compras_df.columns:
+            if col_name.lower() in ['notas', 'nota', 'observacion', 'observaciones']:
+                nota_col = col_name
+                break
+        
+        if nota_col is None:
+            logger.warning("No se encontró columna de notas en la hoja de compras")
+            return {
+                'total_compras': float(compras_df['total'].sum() if 'total' in compras_df.columns else 0),
+                'compras_sin_adelantos': float(compras_df['total'].sum() if 'total' in compras_df.columns else 0),
+                'compras_con_adelantos': 0.0
+            }
+        
+        # Separar compras con y sin notas
+        compras_df['tiene_nota'] = compras_df[nota_col].astype(str).str.strip().str.len() > 0
+        
+        # Calcular totales
+        compras_con_adelantos = compras_df[compras_df['tiene_nota']]['total'].sum() if 'total' in compras_df.columns else 0
+        compras_sin_adelantos = compras_df[~compras_df['tiene_nota']]['total'].sum() if 'total' in compras_df.columns else 0
+        total_compras = compras_con_adelantos + compras_sin_adelantos
+        
+        return {
+            'total_compras': float(total_compras),
+            'compras_sin_adelantos': float(compras_sin_adelantos),
+            'compras_con_adelantos': float(compras_con_adelantos)
+        }
+    except Exception as e:
+        logger.error(f"Error al calcular resumen de compras: {e}")
+        return {
+            'total_compras': 0.0,
+            'compras_sin_adelantos': 0.0,
+            'compras_con_adelantos': 0.0,
+            'error': str(e)
+        }
+
 def calculate_daily_summary(start_date=None, end_date=None):
     """
     Calcula un resumen diario de operaciones
@@ -233,6 +294,9 @@ def calculate_daily_summary(start_date=None, end_date=None):
             gastos_efectivo = 0
             gastos_transferencia = 0
             
+        # Calcular resumen de compras (con y sin adelantos)
+        compras_summary = calculate_compras_summary(start_date, end_date)
+            
         # Construir resumen
         summary = {
             'periodo': {
@@ -248,6 +312,11 @@ def calculate_daily_summary(start_date=None, end_date=None):
                 'ingresos': float(ingresos),
                 'gastos': float(gastos_total),
                 'ganancia': float(ingresos - gastos_total)
+            },
+            'compras': {
+                'total': float(compras_summary['total_compras']),
+                'sin_adelantos': float(compras_summary['compras_sin_adelantos']),
+                'con_adelantos': float(compras_summary['compras_con_adelantos'])
             },
             'metodos_pago': {
                 'efectivo': float(gastos_efectivo),
@@ -343,6 +412,24 @@ def get_daily_summaries(start_date=None, end_date=None):
                 gastos_efectivo = 0
                 gastos_transferencia = 0
                 
+            # Calcular compras con y sin notas para el día
+            # Verificar si existe la columna 'notas'
+            nota_col = None
+            for col_name in day_compras.columns:
+                if col_name.lower() in ['notas', 'nota', 'observacion', 'observaciones']:
+                    nota_col = col_name
+                    break
+
+            compras_con_adelantos = 0
+            compras_sin_adelantos = 0
+            
+            if nota_col is not None:
+                day_compras['tiene_nota'] = day_compras[nota_col].astype(str).str.strip().str.len() > 0
+                compras_con_adelantos = day_compras[day_compras['tiene_nota']]['total'].sum() if 'total' in day_compras.columns else 0
+                compras_sin_adelantos = day_compras[~day_compras['tiene_nota']]['total'].sum() if 'total' in day_compras.columns else 0
+            else:
+                compras_sin_adelantos = day_compras['total'].sum() if 'total' in day_compras.columns else 0
+                
             # Construir resumen del día
             day_summary = {
                 'fecha': str_date,
@@ -354,6 +441,11 @@ def get_daily_summaries(start_date=None, end_date=None):
                     'ingresos': float(ingresos),
                     'gastos': float(gastos_total),
                     'ganancia': float(ingresos - gastos_total)
+                },
+                'compras': {
+                    'total': float(compras_con_adelantos + compras_sin_adelantos),
+                    'sin_adelantos': float(compras_sin_adelantos),
+                    'con_adelantos': float(compras_con_adelantos)
                 },
                 'metodos_pago': {
                     'efectivo': float(gastos_efectivo),
