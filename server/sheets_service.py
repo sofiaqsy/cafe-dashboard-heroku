@@ -190,7 +190,7 @@ def filter_by_date_range(df, fecha_col='fecha', start_date=None, end_date=None, 
 
 def calculate_compras_summary(start_date=None, end_date=None):
     """
-    Calcula resumen de compras, separando las que tienen notas (adelantos) de las que no
+    Calcula resumen de compras, separando las que tienen notas de adelantos de las que no
     
     Args:
         start_date (str): Fecha de inicio en formato 'YYYY-MM-DD'
@@ -209,7 +209,7 @@ def calculate_compras_summary(start_date=None, end_date=None):
             
         # Convertir tipos de datos para cálculos
         for col in compras_df.columns:
-            if col.lower() in ['cantidad', 'precio', 'total', 'monto', 'preciototal']:
+            if col.lower() in ['cantidad', 'precio', 'total', 'preciototal']:
                 compras_df[col] = pd.to_numeric(compras_df[col], errors='coerce').fillna(0)
         
         # Verificar si existe la columna 'notas'
@@ -219,21 +219,32 @@ def calculate_compras_summary(start_date=None, end_date=None):
                 nota_col = col_name
                 break
         
-        if nota_col is None:
-            logger.warning("No se encontró columna de notas en la hoja de compras")
+        total_col = None
+        for col_name in compras_df.columns:
+            if col_name.lower() in ['total', 'preciototal']:
+                total_col = col_name
+                break
+                
+        if nota_col is None or total_col is None:
+            logger.warning("No se encontró columna de notas o total en la hoja de compras")
             return {
-                'total_compras': float(compras_df['total'].sum() if 'total' in compras_df.columns else 0),
-                'compras_sin_adelantos': float(compras_df['total'].sum() if 'total' in compras_df.columns else 0),
+                'total_compras': float(compras_df[total_col].sum() if total_col else 0),
+                'compras_sin_adelantos': float(compras_df[total_col].sum() if total_col else 0),
                 'compras_con_adelantos': 0.0
             }
         
-        # Separar compras con y sin notas
-        compras_df['tiene_nota'] = compras_df[nota_col].astype(str).str.strip().str.len() > 0
+        # Separar compras con y sin adelantos - buscar específicamente texto que contenga "Compra con adelanto"
+        compras_df['es_adelanto'] = compras_df[nota_col].astype(str).str.contains('Compra con adelanto', case=False, na=False)
         
         # Calcular totales
-        compras_con_adelantos = compras_df[compras_df['tiene_nota']]['total'].sum() if 'total' in compras_df.columns else 0
-        compras_sin_adelantos = compras_df[~compras_df['tiene_nota']]['total'].sum() if 'total' in compras_df.columns else 0
+        compras_con_adelantos = compras_df[compras_df['es_adelanto']][total_col].sum()
+        compras_sin_adelantos = compras_df[~compras_df['es_adelanto']][total_col].sum()
         total_compras = compras_con_adelantos + compras_sin_adelantos
+        
+        # Imprimir para depuración
+        logger.info(f"Total compras: {total_compras}")
+        logger.info(f"Compras con adelantos: {compras_con_adelantos}")
+        logger.info(f"Compras sin adelantos: {compras_sin_adelantos}")
         
         return {
             'total_compras': float(total_compras),
@@ -266,14 +277,18 @@ def calculate_daily_summary(start_date=None, end_date=None):
         ventas_df = get_ventas_data()
         gastos_df = get_gastos_data()
         
+        # Obtener también datos del proceso (que contiene compras con adelantos)
+        proceso_df = get_proceso_data()
+        
         # Filtrar por fecha si es necesario
         if start_date or end_date:
             compras_df = filter_by_date_range(compras_df, 'fecha', start_date, end_date)
             ventas_df = filter_by_date_range(ventas_df, 'fecha', start_date, end_date)
             gastos_df = filter_by_date_range(gastos_df, 'fecha', start_date, end_date)
+            proceso_df = filter_by_date_range(proceso_df, 'fecha', start_date, end_date)
             
         # Convertir tipos de datos para cálculos
-        for df in [compras_df, ventas_df, gastos_df]:
+        for df in [compras_df, ventas_df, gastos_df, proceso_df]:
             for col in df.columns:
                 if col.lower() in ['cantidad', 'precio', 'total', 'monto', 'preciototal']:
                     df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
@@ -294,8 +309,29 @@ def calculate_daily_summary(start_date=None, end_date=None):
             gastos_efectivo = 0
             gastos_transferencia = 0
             
-        # Calcular resumen de compras (con y sin adelantos)
-        compras_summary = calculate_compras_summary(start_date, end_date)
+        # Calcular resumen de compras (con y sin adelantos) usando los datos de proceso
+        # En proceso, las compras con adelantos tienen una nota que comienza con "Compra con adelanto"
+        nota_col = None
+        for col_name in proceso_df.columns:
+            if col_name.lower() in ['notas', 'nota', 'observacion', 'observaciones']:
+                nota_col = col_name
+                break
+                
+        total_col = None
+        for col_name in proceso_df.columns:
+            if col_name.lower() in ['total', 'preciototal']:
+                total_col = col_name
+                break
+                
+        if nota_col is not None and total_col is not None:
+            proceso_df['es_adelanto'] = proceso_df[nota_col].astype(str).str.contains('Compra con adelanto', case=False, na=False)
+            compras_con_adelantos = proceso_df[proceso_df['es_adelanto']][total_col].sum()
+            compras_sin_adelantos = proceso_df[~proceso_df['es_adelanto']][total_col].sum()
+        else:
+            # Si no se encuentran las columnas en proceso, usar la función calculate_compras_summary
+            compras_summary = calculate_compras_summary(start_date, end_date)
+            compras_con_adelantos = compras_summary['compras_con_adelantos']
+            compras_sin_adelantos = compras_summary['compras_sin_adelantos']
             
         # Construir resumen
         summary = {
@@ -314,9 +350,9 @@ def calculate_daily_summary(start_date=None, end_date=None):
                 'ganancia': float(ingresos - gastos_total)
             },
             'compras': {
-                'total': float(compras_summary['total_compras']),
-                'sin_adelantos': float(compras_summary['compras_sin_adelantos']),
-                'con_adelantos': float(compras_summary['compras_con_adelantos'])
+                'total': float(compras_con_adelantos + compras_sin_adelantos),
+                'sin_adelantos': float(compras_sin_adelantos),
+                'con_adelantos': float(compras_con_adelantos)
             },
             'metodos_pago': {
                 'efectivo': float(gastos_efectivo),
@@ -357,9 +393,10 @@ def get_daily_summaries(start_date=None, end_date=None):
         compras_df = get_compras_data()
         ventas_df = get_ventas_data()
         gastos_df = get_gastos_data()
+        proceso_df = get_proceso_data()
         
         # Convertir columnas de fecha a datetime
-        for df in [compras_df, ventas_df, gastos_df]:
+        for df in [compras_df, ventas_df, gastos_df, proceso_df]:
             if 'fecha' in df.columns:
                 df['fecha'] = pd.to_datetime(df['fecha'], errors='coerce')
         
@@ -368,16 +405,17 @@ def get_daily_summaries(start_date=None, end_date=None):
             compras_df = filter_by_date_range(compras_df, 'fecha', start_date, end_date)
             ventas_df = filter_by_date_range(ventas_df, 'fecha', start_date, end_date)
             gastos_df = filter_by_date_range(gastos_df, 'fecha', start_date, end_date)
+            proceso_df = filter_by_date_range(proceso_df, 'fecha', start_date, end_date)
             
         # Convertir tipos de datos para cálculos
-        for df in [compras_df, ventas_df, gastos_df]:
+        for df in [compras_df, ventas_df, gastos_df, proceso_df]:
             for col in df.columns:
                 if col.lower() in ['cantidad', 'precio', 'total', 'monto', 'preciototal']:
                     df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         
         # Obtener todas las fechas únicas
         all_dates = pd.DataFrame()
-        for df in [compras_df, ventas_df, gastos_df]:
+        for df in [compras_df, ventas_df, gastos_df, proceso_df]:
             if 'fecha' in df.columns and not df.empty:
                 all_dates = pd.concat([all_dates, df[['fecha']]])
         
@@ -388,6 +426,22 @@ def get_daily_summaries(start_date=None, end_date=None):
         all_dates['fecha_solo'] = all_dates['fecha'].dt.date
         unique_dates = sorted(all_dates['fecha_solo'].unique())
         
+        # Preparar columnas para proceso
+        nota_col_proceso = None
+        for col_name in proceso_df.columns:
+            if col_name.lower() in ['notas', 'nota', 'observacion', 'observaciones']:
+                nota_col_proceso = col_name
+                break
+                
+        total_col_proceso = None
+        for col_name in proceso_df.columns:
+            if col_name.lower() in ['total', 'preciototal']:
+                total_col_proceso = col_name
+                break
+                
+        if nota_col_proceso is not None and total_col_proceso is not None:
+            proceso_df['es_adelanto'] = proceso_df[nota_col_proceso].astype(str).str.contains('Compra con adelanto', case=False, na=False)
+        
         daily_summaries = []
         
         for date in unique_dates:
@@ -397,6 +451,7 @@ def get_daily_summaries(start_date=None, end_date=None):
             day_compras = compras_df[compras_df['fecha'].dt.date == date] if 'fecha' in compras_df.columns else pd.DataFrame()
             day_ventas = ventas_df[ventas_df['fecha'].dt.date == date] if 'fecha' in ventas_df.columns else pd.DataFrame()
             day_gastos = gastos_df[gastos_df['fecha'].dt.date == date] if 'fecha' in gastos_df.columns else pd.DataFrame()
+            day_proceso = proceso_df[proceso_df['fecha'].dt.date == date] if 'fecha' in proceso_df.columns else pd.DataFrame()
             
             # Calcular estadísticas del día
             kg_comprados = day_compras['cantidad'].sum() if 'cantidad' in day_compras.columns else 0
@@ -412,23 +467,13 @@ def get_daily_summaries(start_date=None, end_date=None):
                 gastos_efectivo = 0
                 gastos_transferencia = 0
                 
-            # Calcular compras con y sin notas para el día
-            # Verificar si existe la columna 'notas'
-            nota_col = None
-            for col_name in day_compras.columns:
-                if col_name.lower() in ['notas', 'nota', 'observacion', 'observaciones']:
-                    nota_col = col_name
-                    break
-
+            # Calcular compras con y sin adelantos para el día desde hoja de proceso
             compras_con_adelantos = 0
             compras_sin_adelantos = 0
             
-            if nota_col is not None:
-                day_compras['tiene_nota'] = day_compras[nota_col].astype(str).str.strip().str.len() > 0
-                compras_con_adelantos = day_compras[day_compras['tiene_nota']]['total'].sum() if 'total' in day_compras.columns else 0
-                compras_sin_adelantos = day_compras[~day_compras['tiene_nota']]['total'].sum() if 'total' in day_compras.columns else 0
-            else:
-                compras_sin_adelantos = day_compras['total'].sum() if 'total' in day_compras.columns else 0
+            if nota_col_proceso is not None and total_col_proceso is not None and not day_proceso.empty:
+                compras_con_adelantos = day_proceso[day_proceso['es_adelanto']][total_col_proceso].sum()
+                compras_sin_adelantos = day_proceso[~day_proceso['es_adelanto']][total_col_proceso].sum()
                 
             # Construir resumen del día
             day_summary = {
