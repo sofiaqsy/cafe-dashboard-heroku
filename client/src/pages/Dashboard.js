@@ -7,7 +7,8 @@ import {
   ArrowTrendingUpIcon, 
   ScaleIcon,
   ShoppingCartIcon,
-  ClockIcon
+  ClockIcon,
+  CalculatorIcon
 } from '@heroicons/react/24/outline';
 
 import StatCard from '../components/StatCard';
@@ -129,16 +130,27 @@ const Dashboard = () => {
         />
         
         <StatCard 
-          title="Ganancia Periodo"
+          title="Ganancia Contable"
           value={summary ? formatCurrency(summary.financiero.ganancia) : "S/. 0.00"}
           icon={ArrowTrendingUpIcon}
-          change={summary ? `${((summary.financiero.ganancia / summary.financiero.ingresos) * 100).toFixed(1)}%` : "0%"}
+          change={summary && summary.financiero.ingresos > 0 ? `${((summary.financiero.ganancia / summary.financiero.ingresos) * 100).toFixed(1)}%` : "0%"}
           changeType={summary && summary.financiero.ganancia > 0 ? 'up' : 'down'}
           loading={loading}
         />
       </div>
 
-      {/* Nuevas tarjetas para montos de compras */}
+      {/* Tarjeta para ganancia real */}
+      <div className="mb-6">
+        <StatCard 
+          title="Ganancia Real (Por Proceso)"
+          value={summary && summary.financiero.ganancia_real ? formatCurrency(summary.financiero.ganancia_real) : "S/. 0.00"}
+          icon={CalculatorIcon}
+          loading={loading}
+          description="Calculada en base al proceso de transformación del café"
+        />
+      </div>
+
+      {/* Tarjetas para montos de compras */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
         <StatCard 
           title="Compras sin Adelantos"
