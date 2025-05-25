@@ -5,7 +5,9 @@ import {
   CubeIcon, 
   BanknotesIcon, 
   ArrowTrendingUpIcon, 
-  ScaleIcon 
+  ScaleIcon,
+  ShoppingCartIcon,
+  ClockIcon
 } from '@heroicons/react/24/outline';
 
 import StatCard from '../components/StatCard';
@@ -72,6 +74,16 @@ const Dashboard = () => {
     ];
   };
   
+  // Preparar datos para el gráfico de compras
+  const prepareComprasData = () => {
+    if (!summary || !summary.compras) return [];
+    
+    return [
+      { name: 'Compras Regulares', value: summary.compras.sin_adelantos },
+      { name: 'Compras con Adelantos', value: summary.compras.con_adelantos }
+    ];
+  };
+  
   // Formatear valores para mostrar en componentes
   const formatCurrency = (value) => {
     return `S/. ${parseFloat(value).toFixed(2)}`;
@@ -125,6 +137,23 @@ const Dashboard = () => {
           loading={loading}
         />
       </div>
+
+      {/* Nuevas tarjetas para montos de compras */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+        <StatCard 
+          title="Compras sin Adelantos"
+          value={summary && summary.compras ? formatCurrency(summary.compras.sin_adelantos) : "S/. 0.00"}
+          icon={ShoppingCartIcon}
+          loading={loading}
+        />
+        
+        <StatCard 
+          title="Compras con Adelantos"
+          value={summary && summary.compras ? formatCurrency(summary.compras.con_adelantos) : "S/. 0.00"}
+          icon={ClockIcon}
+          loading={loading}
+        />
+      </div>
       
       {/* Gráficos */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
@@ -151,7 +180,7 @@ const Dashboard = () => {
         />
       </div>
       
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <DonutChart 
           title="Distribución por Tipo de Café"
           data={coffeeTypes}
@@ -163,6 +192,13 @@ const Dashboard = () => {
           title="Métodos de Pago"
           data={preparePaymentMethodsData()}
           colors={['#5DA5DA', '#4D4D4D', '#F15854']}
+          loading={loading}
+        />
+
+        <DonutChart 
+          title="Compras por Tipo"
+          data={prepareComprasData()}
+          colors={['#82CD47', '#F7C04A']}
           loading={loading}
         />
       </div>
