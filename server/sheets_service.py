@@ -260,6 +260,178 @@ def calculate_compras_summary(start_date=None, end_date=None):
             'error': str(e)
         }
 
+def get_detailed_profit_by_process(start_date=None, end_date=None):
+    """
+    Calcula la ganancia real de forma detallada por cada proceso individual
+    
+    Args:
+        start_date (str): Fecha de inicio en formato 'YYYY-MM-DD'
+        end_date (str): Fecha de fin en formato 'YYYY-MM-DD'
+        
+    Returns:
+        dict: Detalles de ganancias por cada proceso
+    """
+    try:
+        # Obtener datos de todas las hojas necesarias
+        compras_df = get_compras_data()
+        proceso_df = get_proceso_data()
+        almacen_df = get_almacen_data()
+        ventas_df = get_ventas_data()
+        
+        # Filtrar por fecha si es necesario
+        if start_date or end_date:
+            proceso_df = filter_by_date_range(proceso_df, 'fecha', start_date, end_date)
+            
+        # Convertir tipos de datos para cálculos
+        for df in [compras_df, proceso_df, almacen_df, ventas_df]:
+            for col in df.columns:
+                if col.lower() in ['cantidad', 'precio', 'total', 'preciototal', 'precio_kg']:
+                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+        
+        # Identificar columnas relevantes en cada DataFrame
+        proceso_id_col = next((col for col in proceso_df.columns if col.lower() in ['id', 'codigo', 'proceso_id']), None)
+        compras_id_col = next((col for col in compras_df.columns if col.lower() in ['id', 'codigo', 'compra_id']), None)
+        compras_total_col = next((col for col in compras_df.columns if col.lower() in ['total', 'preciototal']), None)
+        proceso_compras_id_col = next((col for col in proceso_df.columns if 'compras_' in col.lower() and 'id' in col.lower()), None)
+        almacen_proceso_id_col = next((col for col in almacen_df.columns if 'proceso' in col.lower() and 'id' in col.lower()), None)
+        ventas_almacen_id_col = next((col for col in ventas_df.columns if 'almacen' in col.lower() and 'id' in col.lower()), None)
+        ventas_total_col = next((col for col in ventas_df.columns if col.lower() in ['total', 'precio_total']), None)
+        
+        # Verificar columnas identificadas
+        required_cols = {
+            'proceso_id_col': proceso_id_col,
+            'compras_id_col': compras_id_col, 
+            'compras_total_col': compras_total_col,
+            'proceso_compras_id_col': proceso_compras_id_col,
+            'almacen_proceso_id_col': almacen_proceso_id_col,
+            'ventas_almacen_id_col': ventas_almacen_id_col,
+            'ventas_total_col': ventas_total_col
+        }
+        
+        missing_cols = [k for k, v in required_cols.items() if v is None]
+        if missing_cols:
+            logger.warning(f"No se encontraron todas las columnas necesarias: {missing_cols}")
+        
+        # Resultados detallados por proceso
+        detailed_results = []
+        
+        # Para cada proceso en el rango de fechas
+        for _, proceso_row in proceso_df.iterrows():
+            if proceso_id_col is None or proceso_id_col not in proceso_df.columns:
+                continue
+                
+            proceso_id = str(proceso_row[proceso_id_col]).strip() if pd.notna(proceso_row[proceso_id_col]) else ''
+            if not proceso_id:
+                continue
+                
+            # Obtener fecha del proceso
+            fecha_proceso = proceso_row['fecha'] if 'fecha' in proceso_df.columns and pd.notna(proceso_row['fecha']) else None
+            
+            # 1. Encontrar la compra asociada al proceso
+            compra_id = str(proceso_row[proceso_compras_id_col]).strip() if pd.notna(proceso_row[proceso_compras_id_col]) else ''
+            
+            # Datos básicos del proceso
+            proceso_info = {
+                'proceso_id': proceso_id,
+                'fecha_proceso': fecha_proceso.strftime('%Y-%m-%d') if isinstance(fecha_proceso, (datetime, pd.Timestamp)) else None,
+                'compra_id': compra_id,
+                'tipo_cafe': proceso_row['tipo_cafe'] if 'tipo_cafe' in proceso_df.columns else 'Desconocido',
+                'cantidad_entrada': float(proceso_row['cantidad']) if 'cantidad' in proceso_df.columns else 0.0,
+                'costo_compra': 0.0,
+                'ingresos_ventas': 0.0,
+                'ganancia': 0.0,
+                'ventas': [],
+                'detalles': {}
+            }
+            
+            # 2. Obtener costo de la compra asociada
+            if compra_id:
+                compra_matches = compras_df[compras_df[compras_id_col].astype(str).str.strip() == compra_id]
+                if not compra_matches.empty:
+                    compra_row = compra_matches.iloc[0]
+                    costo_compra = float(compra_row[compras_total_col]) if compras_total_col in compras_df.columns else 0.0
+                    proceso_info['costo_compra'] = costo_compra
+                    
+                    # Añadir detalles de la compra
+                    proceso_info['detalles']['compra'] = {
+                        'fecha': compra_row['fecha'].strftime('%Y-%m-%d') if isinstance(compra_row.get('fecha'), (datetime, pd.Timestamp)) else None,
+                        'tipo_cafe': compra_row.get('tipo_cafe', 'Desconocido'),
+                        'cantidad': float(compra_row.get('cantidad', 0)),
+                        'precio_kg': float(compra_row.get('precio', 0)),
+                        'total': costo_compra
+                    }
+            
+            # 3. Encontrar registros de almacén asociados a este proceso
+            almacen_asociado = []
+            if almacen_proceso_id_col:
+                almacen_matches = almacen_df[almacen_df[almacen_proceso_id_col].astype(str).str.strip() == proceso_id]
+                for _, almacen_row in almacen_matches.iterrows():
+                    almacen_id = str(almacen_row[almacen_id_col]).strip() if pd.notna(almacen_row.get(almacen_id_col)) else ''
+                    almacen_asociado.append({
+                        'almacen_id': almacen_id,
+                        'fecha': almacen_row['fecha'].strftime('%Y-%m-%d') if isinstance(almacen_row.get('fecha'), (datetime, pd.Timestamp)) else None,
+                        'tipo_cafe': almacen_row.get('tipo_cafe', 'Desconocido'),
+                        'cantidad': float(almacen_row.get('cantidad', 0))
+                    })
+            
+            proceso_info['detalles']['almacen'] = almacen_asociado
+            
+            # 4. Encontrar ventas asociadas a los registros de almacén
+            for almacen_item in almacen_asociado:
+                almacen_id = almacen_item['almacen_id']
+                ventas_matches = ventas_df[ventas_df[ventas_almacen_id_col].astype(str).str.strip() == almacen_id]
+                
+                for _, venta_row in ventas_matches.iterrows():
+                    venta_total = float(venta_row[ventas_total_col]) if ventas_total_col in ventas_df.columns else 0.0
+                    proceso_info['ingresos_ventas'] += venta_total
+                    
+                    venta_info = {
+                        'fecha': venta_row['fecha'].strftime('%Y-%m-%d') if isinstance(venta_row.get('fecha'), (datetime, pd.Timestamp)) else None,
+                        'cliente': venta_row.get('cliente', 'Desconocido'),
+                        'tipo_cafe': venta_row.get('tipo_cafe', 'Desconocido'),
+                        'cantidad': float(venta_row.get('cantidad', 0)),
+                        'precio_kg': float(venta_row.get('precio', 0)),
+                        'total': venta_total
+                    }
+                    
+                    proceso_info['ventas'].append(venta_info)
+            
+            # 5. Calcular ganancia para este proceso
+            proceso_info['ganancia'] = proceso_info['ingresos_ventas'] - proceso_info['costo_compra']
+            
+            # Añadir al resultado
+            detailed_results.append(proceso_info)
+        
+        # Calcular totales generales
+        total_costo = sum(p['costo_compra'] for p in detailed_results)
+        total_ingresos = sum(p['ingresos_ventas'] for p in detailed_results)
+        total_ganancia = sum(p['ganancia'] for p in detailed_results)
+        
+        # Devolver resultado
+        return {
+            'procesos': detailed_results,
+            'resumen': {
+                'total_procesos': len(detailed_results),
+                'total_costo': float(total_costo),
+                'total_ingresos': float(total_ingresos),
+                'total_ganancia': float(total_ganancia)
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error al calcular ganancia detallada por proceso: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return {
+            'procesos': [],
+            'resumen': {
+                'total_procesos': 0,
+                'total_costo': 0.0,
+                'total_ingresos': 0.0,
+                'total_ganancia': 0.0
+            },
+            'error': str(e)
+        }
+
 def calculate_profit_by_process(start_date=None, end_date=None):
     """
     Calcula la ganancia real basada en el proceso de transformación de café
