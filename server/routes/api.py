@@ -8,7 +8,8 @@ from datetime import datetime, timedelta
 
 from server.sheets_service import (
     get_compras_data, get_ventas_data, get_gastos_data, get_proceso_data, get_almacen_data,
-    calculate_daily_summary, get_daily_summaries, get_coffee_types_summary
+    calculate_daily_summary, get_daily_summaries, get_coffee_types_summary,
+    get_detailed_profit_by_process
 )
 
 # Configurar logging
@@ -107,6 +108,41 @@ def coffee_types():
         return jsonify({
             'error': str(e),
             'message': 'Error al obtener tipos de café'
+        }), 500
+
+@api_bp.route('/proceso-ganancia', methods=['GET'])
+def proceso_ganancia():
+    """
+    Obtener el detalle de ganancias por proceso individual
+    
+    Query parameters:
+        start_date: Fecha de inicio (YYYY-MM-DD)
+        end_date: Fecha de fin (YYYY-MM-DD)
+    """
+    try:
+        # Obtener parámetros de consulta
+        start_date = request.args.get('start_date', None)
+        end_date = request.args.get('end_date', None)
+        
+        # Si no se especifica end_date, usar la fecha actual
+        if not end_date:
+            end_date = datetime.now().strftime('%Y-%m-%d')
+            
+        # Si no se especifica start_date, usar el mes actual
+        if not start_date:
+            # Primer día del mes actual
+            current_month = datetime.now().replace(day=1)
+            start_date = current_month.strftime('%Y-%m-%d')
+        
+        # Obtener datos detallados de ganancia por proceso
+        data = get_detailed_profit_by_process(start_date, end_date)
+        
+        return jsonify(data)
+    except Exception as e:
+        logger.error(f"Error al obtener ganancia detallada por proceso: {e}")
+        return jsonify({
+            'error': str(e),
+            'message': 'Error al obtener ganancia detallada por proceso'
         }), 500
 
 @api_bp.route('/raw/compras', methods=['GET'])
