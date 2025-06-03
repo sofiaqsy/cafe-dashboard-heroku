@@ -50,6 +50,16 @@ export const apiService = {
     return response.data;
   },
   
+  // Obtener datos detallados de ganancia por proceso
+  async getProcessProfit(startDate, endDate) {
+    const params = {};
+    if (startDate) params.start_date = formatDate(startDate);
+    if (endDate) params.end_date = formatDate(endDate);
+    
+    const response = await apiClient.get('/proceso-ganancia', { params });
+    return response.data;
+  },
+  
   // Obtener datos crudos de cada colección
   async getRawData(collection) {
     if (!['compras', 'ventas', 'gastos', 'proceso', 'almacen'].includes(collection)) {

@@ -8,7 +8,8 @@ import {
   Cog6ToothIcon,
   ArrowLeftOnRectangleIcon,
   XMarkIcon,
-  Bars3Icon
+  Bars3Icon,
+  CalculatorIcon
 } from '@heroicons/react/24/outline';
 
 const Sidebar = () => {
@@ -20,6 +21,7 @@ const Sidebar = () => {
     { name: 'Dashboard', path: '/', icon: HomeIcon },
     { name: 'Inventario', path: '/inventory', icon: CubeIcon },
     { name: 'Finanzas', path: '/financial', icon: BanknotesIcon },
+    { name: 'Ganancia por Proceso', path: '/process-profit', icon: CalculatorIcon },
     { name: 'Reportes', path: '/reports', icon: ChartBarIcon },
     { name: 'Configuración', path: '/settings', icon: Cog6ToothIcon },
   ];
