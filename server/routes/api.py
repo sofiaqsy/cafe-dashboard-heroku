@@ -13,6 +13,7 @@ from server.sheets_service import (
 )
 
 # Configurar logging
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 # Crear blueprint para las rutas de la API
@@ -118,11 +119,15 @@ def proceso_ganancia():
     Query parameters:
         start_date: Fecha de inicio (YYYY-MM-DD)
         end_date: Fecha de fin (YYYY-MM-DD)
+        debug: Si está presente, devuelve información adicional de depuración
     """
     try:
         # Obtener parámetros de consulta
         start_date = request.args.get('start_date', None)
         end_date = request.args.get('end_date', None)
+        include_debug = request.args.get('debug', 'true').lower() in ('true', '1', 't', 'yes')
+        
+        logger.info(f"Obteniendo ganancias por proceso: {start_date} a {end_date}")
         
         # Si no se especifica end_date, usar la fecha actual
         if not end_date:
@@ -137,11 +142,30 @@ def proceso_ganancia():
         # Obtener datos detallados de ganancia por proceso
         data = get_detailed_profit_by_process(start_date, end_date)
         
+        # Si no se solicita información de depuración, eliminarla de la respuesta
+        if not include_debug and 'debug_info' in data:
+            del data['debug_info']
+            
+        # Agregar información de la solicitud para depuración
+        if include_debug:
+            if 'debug_info' not in data:
+                data['debug_info'] = {}
+            data['debug_info']['request'] = {
+                'start_date': start_date,
+                'end_date': end_date,
+                'url': request.url,
+                'args': dict(request.args)
+            }
+        
         return jsonify(data)
     except Exception as e:
         logger.error(f"Error al obtener ganancia detallada por proceso: {e}")
+        import traceback
+        error_traceback = traceback.format_exc()
+        logger.error(error_traceback)
         return jsonify({
             'error': str(e),
+            'traceback': error_traceback,
             'message': 'Error al obtener ganancia detallada por proceso'
         }), 500
 
