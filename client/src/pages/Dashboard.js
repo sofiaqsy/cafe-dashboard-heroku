@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { Link } from 'react-router-dom';
 import { 
   CubeIcon, 
   BanknotesIcon, 
@@ -8,7 +9,8 @@ import {
   ScaleIcon,
   ShoppingCartIcon,
   ClockIcon,
-  CalculatorIcon
+  CalculatorIcon,
+  ArrowTopRightOnSquareIcon
 } from '@heroicons/react/24/outline';
 
 import StatCard from '../components/StatCard';
@@ -141,13 +143,20 @@ const Dashboard = () => {
 
       {/* Tarjeta para ganancia real */}
       <div className="mb-6">
-        <StatCard 
-          title="Ganancia Real (Por Proceso)"
-          value={summary && summary.financiero.ganancia_real ? formatCurrency(summary.financiero.ganancia_real) : "S/. 0.00"}
-          icon={CalculatorIcon}
-          loading={loading}
-          description="Calculada en base al proceso de transformación del café"
-        />
+        <Link to="/process-profit" className="block">
+          <div className="relative">
+            <StatCard 
+              title="Ganancia Real (Por Proceso)"
+              value={summary && summary.financiero.ganancia_real ? formatCurrency(summary.financiero.ganancia_real) : "S/. 0.00"}
+              icon={CalculatorIcon}
+              loading={loading}
+              description="Calculada en base al proceso de transformación del café"
+            />
+            <div className="absolute top-3 right-3 text-coffee-600 hover:text-coffee-800">
+              <ArrowTopRightOnSquareIcon className="h-5 w-5" />
+            </div>
+          </div>
+        </Link>
       </div>
 
       {/* Tarjetas para montos de compras */}
