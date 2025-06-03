@@ -13,8 +13,11 @@ import pytz
 
 from server.config import get_config
 
-# Configurar logging
-logging.basicConfig(level=logging.INFO)
+# Configurar logging con más detalle
+logging.basicConfig(
+    level=logging.DEBUG,  # Cambiado a DEBUG para ver más información
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 config = get_config()
@@ -273,14 +276,50 @@ def get_detailed_profit_by_process(start_date=None, end_date=None):
     """
     try:
         # Obtener datos de todas las hojas necesarias
+        logger.debug(f"Obteniendo datos para periodo: {start_date} a {end_date}")
         compras_df = get_compras_data()
         proceso_df = get_proceso_data()
         almacen_df = get_almacen_data()
         ventas_df = get_ventas_data()
         
+        # Información de diagnóstico: tamaños de los DataFrames
+        logger.debug(f"Tamaño de compras_df: {len(compras_df)} filas")
+        logger.debug(f"Tamaño de proceso_df: {len(proceso_df)} filas")
+        logger.debug(f"Tamaño de almacen_df: {len(almacen_df)} filas")
+        logger.debug(f"Tamaño de ventas_df: {len(ventas_df)} filas")
+        
+        # Mostrar columnas disponibles en cada DataFrame
+        logger.debug(f"Columnas de compras_df: {list(compras_df.columns)}")
+        logger.debug(f"Columnas de proceso_df: {list(proceso_df.columns)}")
+        logger.debug(f"Columnas de almacen_df: {list(almacen_df.columns)}")
+        logger.debug(f"Columnas de ventas_df: {list(ventas_df.columns)}")
+        
         # Filtrar por fecha si es necesario
         if start_date or end_date:
+            logger.debug(f"Filtrando datos por rango de fechas: {start_date} a {end_date}")
             proceso_df = filter_by_date_range(proceso_df, 'fecha', start_date, end_date)
+            logger.debug(f"Después del filtrado: {len(proceso_df)} procesos")
+            
+        # Información de diagnóstico: ¿hay datos después del filtrado?
+        if proceso_df.empty:
+            logger.warning("No hay datos de proceso para el rango de fechas seleccionado")
+            return {
+                'procesos': [],
+                'resumen': {
+                    'total_procesos': 0,
+                    'total_costo': 0.0,
+                    'total_ingresos': 0.0,
+                    'total_ganancia': 0.0
+                },
+                'debug_info': {
+                    'start_date': start_date,
+                    'end_date': end_date,
+                    'compras_count': len(compras_df),
+                    'proceso_count': len(proceso_df),
+                    'almacen_count': len(almacen_df),
+                    'ventas_count': len(ventas_df)
+                }
+            }
             
         # Convertir tipos de datos para cálculos
         for df in [compras_df, proceso_df, almacen_df, ventas_df]:
@@ -288,14 +327,25 @@ def get_detailed_profit_by_process(start_date=None, end_date=None):
                 if col.lower() in ['cantidad', 'precio', 'total', 'preciototal', 'precio_kg']:
                     df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         
-        # Identificar columnas relevantes en cada DataFrame
-        proceso_id_col = next((col for col in proceso_df.columns if col.lower() in ['id', 'codigo', 'proceso_id']), None)
-        compras_id_col = next((col for col in compras_df.columns if col.lower() in ['id', 'codigo', 'compra_id']), None)
-        compras_total_col = next((col for col in compras_df.columns if col.lower() in ['total', 'preciototal']), None)
-        proceso_compras_id_col = next((col for col in proceso_df.columns if 'compras_' in col.lower() and 'id' in col.lower()), None)
-        almacen_proceso_id_col = next((col for col in almacen_df.columns if 'proceso' in col.lower() and 'id' in col.lower()), None)
-        ventas_almacen_id_col = next((col for col in ventas_df.columns if 'almacen' in col.lower() and 'id' in col.lower()), None)
-        ventas_total_col = next((col for col in ventas_df.columns if col.lower() in ['total', 'precio_total']), None)
+        # Identificar columnas relevantes en cada DataFrame usando una función auxiliar más clara
+        def find_column(df, possible_names):
+            for name in possible_names:
+                for col in df.columns:
+                    if name.lower() in col.lower():
+                        logger.debug(f"Columna encontrada: {col} para patrón {name}")
+                        return col
+            logger.warning(f"No se encontró columna que coincida con {possible_names}")
+            return None
+        
+        # Buscar columnas de ID
+        proceso_id_col = find_column(proceso_df, ['id', 'codigo', 'proceso_id'])
+        compras_id_col = find_column(compras_df, ['id', 'codigo', 'compra_id'])
+        compras_total_col = find_column(compras_df, ['total', 'preciototal'])
+        proceso_compras_id_col = find_column(proceso_df, ['compras_id', 'id_compra'])
+        almacen_id_col = find_column(almacen_df, ['id', 'codigo', 'almacen_id'])
+        almacen_proceso_id_col = find_column(almacen_df, ['proceso_id', 'id_proceso'])
+        ventas_almacen_id_col = find_column(ventas_df, ['almacen_id', 'id_almacen'])
+        ventas_total_col = find_column(ventas_df, ['total', 'precio_total'])
         
         # Verificar columnas identificadas
         required_cols = {
@@ -305,30 +355,56 @@ def get_detailed_profit_by_process(start_date=None, end_date=None):
             'proceso_compras_id_col': proceso_compras_id_col,
             'almacen_proceso_id_col': almacen_proceso_id_col,
             'ventas_almacen_id_col': ventas_almacen_id_col,
-            'ventas_total_col': ventas_total_col
+            'ventas_total_col': ventas_total_col,
+            'almacen_id_col': almacen_id_col
         }
         
         missing_cols = [k for k, v in required_cols.items() if v is None]
         if missing_cols:
             logger.warning(f"No se encontraron todas las columnas necesarias: {missing_cols}")
+            # Retornar información de depuración
+            return {
+                'procesos': [],
+                'resumen': {
+                    'total_procesos': 0,
+                    'total_costo': 0.0,
+                    'total_ingresos': 0.0,
+                    'total_ganancia': 0.0
+                },
+                'debug_info': {
+                    'missing_columns': missing_cols,
+                    'available_columns': {
+                        'proceso': list(proceso_df.columns),
+                        'compras': list(compras_df.columns),
+                        'almacen': list(almacen_df.columns),
+                        'ventas': list(ventas_df.columns)
+                    }
+                }
+            }
         
         # Resultados detallados por proceso
         detailed_results = []
         
         # Para cada proceso en el rango de fechas
-        for _, proceso_row in proceso_df.iterrows():
+        for index, proceso_row in proceso_df.iterrows():
+            logger.debug(f"Procesando proceso #{index}")
+            
             if proceso_id_col is None or proceso_id_col not in proceso_df.columns:
                 continue
                 
             proceso_id = str(proceso_row[proceso_id_col]).strip() if pd.notna(proceso_row[proceso_id_col]) else ''
             if not proceso_id:
+                logger.debug(f"Proceso #{index} no tiene ID válido")
                 continue
+            
+            logger.debug(f"Procesando proceso con ID: {proceso_id}")
                 
             # Obtener fecha del proceso
             fecha_proceso = proceso_row['fecha'] if 'fecha' in proceso_df.columns and pd.notna(proceso_row['fecha']) else None
             
             # 1. Encontrar la compra asociada al proceso
             compra_id = str(proceso_row[proceso_compras_id_col]).strip() if pd.notna(proceso_row[proceso_compras_id_col]) else ''
+            logger.debug(f"Proceso {proceso_id} asociado a compra ID: {compra_id}")
             
             # Datos básicos del proceso
             proceso_info = {
@@ -347,10 +423,13 @@ def get_detailed_profit_by_process(start_date=None, end_date=None):
             # 2. Obtener costo de la compra asociada
             if compra_id:
                 compra_matches = compras_df[compras_df[compras_id_col].astype(str).str.strip() == compra_id]
+                logger.debug(f"Encontradas {len(compra_matches)} compras con ID {compra_id}")
+                
                 if not compra_matches.empty:
                     compra_row = compra_matches.iloc[0]
                     costo_compra = float(compra_row[compras_total_col]) if compras_total_col in compras_df.columns else 0.0
                     proceso_info['costo_compra'] = costo_compra
+                    logger.debug(f"Costo de compra para proceso {proceso_id}: {costo_compra}")
                     
                     # Añadir detalles de la compra
                     proceso_info['detalles']['compra'] = {
@@ -365,6 +444,8 @@ def get_detailed_profit_by_process(start_date=None, end_date=None):
             almacen_asociado = []
             if almacen_proceso_id_col:
                 almacen_matches = almacen_df[almacen_df[almacen_proceso_id_col].astype(str).str.strip() == proceso_id]
+                logger.debug(f"Encontrados {len(almacen_matches)} registros de almacén para proceso {proceso_id}")
+                
                 for _, almacen_row in almacen_matches.iterrows():
                     almacen_id = str(almacen_row[almacen_id_col]).strip() if pd.notna(almacen_row.get(almacen_id_col)) else ''
                     almacen_asociado.append({
@@ -380,6 +461,7 @@ def get_detailed_profit_by_process(start_date=None, end_date=None):
             for almacen_item in almacen_asociado:
                 almacen_id = almacen_item['almacen_id']
                 ventas_matches = ventas_df[ventas_df[ventas_almacen_id_col].astype(str).str.strip() == almacen_id]
+                logger.debug(f"Encontradas {len(ventas_matches)} ventas para almacén {almacen_id}")
                 
                 for _, venta_row in ventas_matches.iterrows():
                     venta_total = float(venta_row[ventas_total_col]) if ventas_total_col in ventas_df.columns else 0.0
@@ -398,16 +480,24 @@ def get_detailed_profit_by_process(start_date=None, end_date=None):
             
             # 5. Calcular ganancia para este proceso
             proceso_info['ganancia'] = proceso_info['ingresos_ventas'] - proceso_info['costo_compra']
+            logger.debug(f"Ganancia calculada para proceso {proceso_id}: {proceso_info['ganancia']}")
             
             # Añadir al resultado
             detailed_results.append(proceso_info)
+        
+        # Información de diagnóstico final
+        logger.info(f"Total de procesos encontrados: {len(detailed_results)}")
         
         # Calcular totales generales
         total_costo = sum(p['costo_compra'] for p in detailed_results)
         total_ingresos = sum(p['ingresos_ventas'] for p in detailed_results)
         total_ganancia = sum(p['ganancia'] for p in detailed_results)
         
-        # Devolver resultado
+        logger.info(f"Total costos: {total_costo}")
+        logger.info(f"Total ingresos: {total_ingresos}")
+        logger.info(f"Total ganancia: {total_ganancia}")
+        
+        # Devolver resultado con información de depuración
         return {
             'procesos': detailed_results,
             'resumen': {
@@ -415,6 +505,16 @@ def get_detailed_profit_by_process(start_date=None, end_date=None):
                 'total_costo': float(total_costo),
                 'total_ingresos': float(total_ingresos),
                 'total_ganancia': float(total_ganancia)
+            },
+            'debug_info': {
+                'start_date': start_date,
+                'end_date': end_date,
+                'compras_count': len(compras_df),
+                'proceso_count': len(proceso_df),
+                'filtered_proceso_count': len(proceso_df) if start_date is None and end_date is None else None,
+                'almacen_count': len(almacen_df),
+                'ventas_count': len(ventas_df),
+                'identified_columns': required_cols
             }
         }
     except Exception as e:
@@ -429,7 +529,8 @@ def get_detailed_profit_by_process(start_date=None, end_date=None):
                 'total_ingresos': 0.0,
                 'total_ganancia': 0.0
             },
-            'error': str(e)
+            'error': str(e),
+            'traceback': traceback.format_exc()
         }
 
 def calculate_profit_by_process(start_date=None, end_date=None):
